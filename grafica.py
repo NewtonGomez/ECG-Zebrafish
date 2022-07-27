@@ -1,15 +1,19 @@
+from concurrent.futures import thread
 from tkinter import Tk, Frame, Button, Label, ttk, PhotoImage, StringVar
+from tkinter.ttk import Combobox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import collections 
 from struct import unpack, calcsize, pack
 from socket import socket, AF_INET, SOCK_STREAM
-
+import time
+from threading import Thread
 
 class Grafica(Frame): 
     def __init__(self,master, *args):
-        super().__init__( master, *args)
+        super().__init__( master, *args, bg='#54123B')
+        self.__force_Stop__ = True
         self.muestra = 100
         self.datos = 0.0
         self.offset = StringVar()
@@ -78,7 +82,7 @@ class Grafica(Frame):
     def widgets(self):
         # grafica
         frame = Frame(self.master, bg='#54123B', bd=2)
-        frame.grid(column= 0, columnspan = 4, row = 0, sticky = 'nsew')
+        frame.grid(column= 0, columnspan = 5, row = 0, sticky = 'nsew')
         
         # botones de conexion
         frame_izquierda = Frame(self.master, bg = '#54123B')
@@ -89,7 +93,7 @@ class Grafica(Frame):
         
         frame_sliders = Frame(self.master, bg = '#54123B')
         frame_sliders.grid(column=1, row=1, sticky = 'nsew')
-        
+
         self.master.columnconfigure(0, weight=1)
         self.master.columnconfigure(1, weight=1)
         self.master.columnconfigure(2, weight=1)
@@ -118,10 +122,78 @@ class Grafica(Frame):
         self.bt_grabar = Button(frame_derecha, text='Conectar', font =('Arial', 12, 'bold'), bg = '#29C7AC', fg='white',command = self.conectar_serial, bd=1) 
         self.bt_grabar.pack(fill='both', expand=5)
 
-        self.bt_grabar = Button(frame_derecha, text='Grabar', font =('Arial', 12, 'bold'), bg = '#29C7AC', fg='white',command = self.conectar_serial, bd=1) 
-        self.bt_grabar.pack(fill='both', expand=5)
-    
-    
+        self.thread_widgets_grabar = Thread(target=self.widgets_grabacion)
+        self.thread_widgets_grabar.start()
+
+    def widgets_grabacion(self):
+        self.led_variable = StringVar()
+        self.led_variable.set('rsc/led_red_off.png')
+
+        self.frame_saving = Frame(self.master, bg= '#54123B', pady=20, padx=10)
+        self.frame_saving.grid(column=5, row=0, sticky='nsew')
+
+        self.frame_extra = Frame(self.master, bg= '#54123B')
+        self.frame_extra.grid(column=5, row=1, sticky='nsew')
+
+        self.led = PhotoImage(file=self.led_variable.get())
+        self.led = self.led.subsample(2)
+        self.label_led = Label(self.frame_saving, bd=0, image=self.led, bg='#54123B')
+        self.label_led.pack(fill='both')
+
+        self.tiempo = StringVar()
+        self.tiempo.set('00:00 s')
+        self. label_contador = Label(self.frame_saving, bd=0, bg='#54123B', textvariable=self.tiempo, font=('Arial', 50, 'bold'), fg='white')
+        self.label_contador.pack(fill='both')
+
+        timer_variable = StringVar()
+        
+        self.temporizador = Combobox(self.frame_saving, textvariable=timer_variable, font=('Arial', 15))
+        self.temporizador.pack(fill='both')
+        self.temporizador['values'] = ('5s', '10s', '30s', '60s', '90s', '120s', '180s')
+        self.temporizador.current(5)
+        self.temporizador.update()
+
+        self.bt_grabar = Button(self.frame_saving, text='Grabar', font =('Arial', 12, 'bold'), bg = '#29C7AC', fg='white',command = lambda: self.accion_grabar(self.temporizador.get()), bd=1) 
+        self.bt_grabar.pack(fill='both')
+
+        self.bt_detener = Button(self.frame_saving, text='Detener', font =('Arial', 12, 'bold'), bg = '#29C7AC', fg='white', bd=1, state='disabled', command=self.stop_counting) 
+        self.bt_detener.pack(fill='both')
+
+    def accion_grabar(self, contador):
+        print(f'conteo: {contador}')
+        conteo = int(contador.replace('s', ''))
+        
+        self.led_variable.set('rsc/led_red_on.png')
+        self.led = PhotoImage(file=self.led_variable.get())
+        self.led = self.led.subsample(2)
+        self.label_led.config(image=self.led)
+
+        self.bt_grabar.config(state='disabled')
+        self.bt_detener.config(state='normal')
+        
+        self.__force_Stop__ = True
+
+        while self.__force_Stop__ and conteo:
+            m, s = divmod(conteo, 60)
+            intTiempo = '{:02d}:{:02d} s'.format(m, s)
+            
+            self.tiempo.set(intTiempo)
+            self.label_contador.update()
+            
+            time.sleep(1)
+            conteo -= 1
+
+        self.tiempo.set('00:00 s')
+        self.led_variable.set('rsc/led_red_off.png')
+        self.led = PhotoImage(file=self.led_variable.get())
+        self.led = self.led.subsample(2)
+        self.label_led.config(image=self.led)
+
+    def stop_counting(self):
+        self.__force_Stop__ = False
+        self.bt_grabar.config(state='normal')
+        self.bt_detener.config(state='disabled')
+
     def sendinfo(self):
         self.client.sendall(pack('s', 'hola mundo'))
 
@@ -137,7 +209,7 @@ class Grafica(Frame):
 
 if __name__=="__main__":
     ventana = Tk()
-    ventana.geometry('742x535')
+    ventana.geometry('1500x800')
     ventana.config(bg= 'gray30', bd=4)
     ventana.wm_title('Electrocardiografo')
     ventana.minsize(width=700,height=400)
