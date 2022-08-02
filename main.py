@@ -1,60 +1,73 @@
 from collections import deque
 from tkinter import *
 from tkinter.ttk import Style, Scale
-from tkinter.filedialog import asksaveasfile
+from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter import messagebox
+from turtle import pd
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.animation as animation
 from struct import unpack, calcsize, pack
 from socket import socket, AF_INET, SOCK_STREAM
 
-
 class MenuBar(Menu):
     def __init__(self, ws):
         Menu.__init__(self, ws)
-        self.muestra = 1500
+        self.muestra = 2000
         self.offset = StringVar()
         self.bg_color = '#D3D3D3'
         self.conectado = False
+        self.frame_scanner = True
         # grafica
         
-        file = Menu(self, tearoff=False, font=('Arial',13))
-        file.add_command(label="Abrir")  
+        file = Menu(self, tearoff=False)
+        file.add_command(label="Abrir", command=self.abrir_archivo)  
+        file.add_command(label="Nuevo", command=self.nuevo_escaner)  
         file.add_command(label="Guardar")  
         file.add_command(label="Guardar como", command=self.guardar)    
         file.add_separator()
         file.add_command(label="Salir", underline=1, command=self.quit)
         self.add_cascade(label="Archivo",underline=0, menu=file)
         
-        self.conectar = Menu(self, tearoff=0, font=('Arial', 13))
+        self.conectar = Menu(self, tearoff=0)
         self.conectar.add_command(label='Conectar', command=self.conectar_serial)
         self.conectar.add_separator()
         self.conectar.add_command(label='Desconectar', command=self.desconectar_serial)
         self.add_cascade(label='Conectar', underline=0, menu=self.conectar)
 
-        edit = Menu(self, tearoff=0, font=('Arial', 13))  
+        edit = Menu(self, tearoff=0)  
         edit.add_command(label="Deshacer")  
         edit.add_separator()     
         self.add_cascade(label="Editar", menu=edit) 
 
-        help = Menu(self, tearoff=0, font=("Arial",13))  
+        help = Menu(self, tearoff=0)  
         help.add_command(label="About", command=self.about)  
-        self.add_cascade(label="Ayuda", menu=help, font=('Arial', 15))  
+        self.add_cascade(label="Ayuda", menu=help)  
         
         self.Widgets()
 
+    def nuevo_escaner(self):
+        if not self.frame_scanner:
+            self.frame_analisis.forget()
+            self.Widgets()
+        else:
+            messagebox.showinfo('Listos para el registro', 'Estamos preparados para un nuevo registro.')
+
     def Widgets(self):
-        frame = Frame(self.master, bg=self.bg_color, bd=2)
+        self.frame_principal = Frame(self.master)
+        self.frame_principal.pack(fill='both', expand=5)
+
+        frame = Frame(self.frame_principal, bg=self.bg_color, bd=2)
         frame.grid(column= 0, columnspan = 5, row = 0, sticky = 'nsew')
         # botones de conexion
-        frame_izquierda = Frame(self.master, bg = self.bg_color)
+        frame_izquierda = Frame(self.frame_principal, bg = self.bg_color)
         frame_izquierda.grid(column = 0, row= 1, sticky = 'nsew')
 
-        frame_sliders = Frame(self.master, bg = self.bg_color)
+        frame_sliders = Frame(self.frame_principal, bg = self.bg_color)
         frame_sliders.grid(column=1, row=1, sticky = 'nsew')
 
-        self.fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,1))
+        self.fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,5))
         plt.title('ELECTROCARDIOGRAMA', color = '#000000', size = 12, family = 'Arial')
         ax.tick_params(direction='out', length=5, width = 2, colors='#000000', grid_color='r', grid_alpha=0.5)
         self.line, = ax.plot([],[],color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
@@ -70,10 +83,10 @@ class MenuBar(Menu):
 
         self.datos_señal_uno = deque([0]*self.muestra, maxlen = self.muestra)
 
-        self.master.columnconfigure(0, weight=1)
-        self.master.columnconfigure(1, weight=1)
-        self.master.rowconfigure(0, weight=5)
-        self.master.rowconfigure(1, weight=1) 
+        self.frame_principal.columnconfigure(0, weight=1)
+        self.frame_principal.columnconfigure(1, weight=1)
+        self.frame_principal.rowconfigure(0, weight=5)
+        self.frame_principal.rowconfigure(1, weight=1) 
 
         self.canvas = FigureCanvasTkAgg(self.fig, master = frame)
         self.canvas.get_tk_widget().pack(padx=0, pady=0, expand = True, fill='both')
@@ -154,7 +167,7 @@ class MenuBar(Menu):
         else:
             try:
                 self.client = socket(AF_INET, SOCK_STREAM)
-                host = ('192.168.100.148', 9999)
+                host = ('192.168.100.40', 9999)
                 self.client.connect(host)
                 
                 messagebox.showinfo('Conectado', 'Listo para gráficar el electrocardiograma.')
@@ -190,15 +203,76 @@ class MenuBar(Menu):
             defaultextension='.txt',
         )
         
-        periodo = 30/500
+        periodo = 60/2000
         tiempo = 0
         with open(filepath.name, 'a') as file:
             for data in self.datos_señal_uno:
-                file.write(f'{tiempo},{data}\n')
+                file.write(f'{round(tiempo, 3)},{data}\n')
                 tiempo  += periodo
             file.close()
         messagebox.showinfo("Listo", f"El registro se ha guardado con éxito\nGuardado en {filepath.name}")
+    
+    def abrir_archivo(self):
+        filepath = askopenfile(
+            filetypes=(
+                ("Text files", "*.txt"),
+                ('CSV (Delimitado por comas)', '*.csv')
+            ),
+            defaultextension='.txt',
+        )
+        x = []
+        y = []
+        with open(filepath.name, 'r') as file:
+            for line in file.readlines():
+                x.append(line.split(',')[0])
+                y.append(line.split(',')[1])
 
+        self.frame_scanner = False
+        self.widgetsedicion(str(filepath.name), x, y)
+
+    def valores_mas_alto(self, lista: list):
+        posiciones = []
+        valor = 12
+        for i in range(0, len(lista)):
+            if lista[i] > valor:
+                posiciones.append(i)
+        return posiciones
+
+    def widgetsedicion(self, filepath, x, y):
+        filepath = filepath.split('/')
+        filepath = filepath[len(filepath)-1]
+
+        for i in range(0, len(x)):
+            x[i] = float(x[i]) 
+            y[i] = float(y[i]) 
+        
+        self.frame_principal.forget()
+        self.frame_analisis = Frame(self.master, background=self.bg_color)
+        self.frame_analisis.pack(fill='both', expand=5)
+
+        self.frame_analisis.columnconfigure(0, weight=1)
+        self.frame_analisis.rowconfigure(0, weight=5)
+
+        graphic_frame = Frame(self.frame_analisis, bd=2)
+        graphic_frame.grid(column=0, row=0, columnspan=5, sticky='nsew')
+
+        fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(0,5))
+        plt.title(filepath, color = '#000000', size = 12, family = 'Arial')
+        posiciones = self.valores_mas_alto(y)
+        for i in range(0, len(posiciones)):
+            plt.axvspan(x[posiciones[i]]-1, x[posiciones[i]]+1, color='red', alpha=0.3)
+        line = ax.plot(x, y, color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
+        
+        ax.set_facecolor('#ffffff')
+        ax.spines['bottom'].set_color('blue')
+        ax.spines['left'].set_color('blue')
+        ax.spines['top'].set_color('blue')
+        ax.spines['right'].set_color('blue')
+
+        canvas = FigureCanvasTkAgg(fig, master = graphic_frame)
+        NavigationToolbar2Tk(canvas, graphic_frame)
+        canvas.get_tk_widget().pack(padx=0, pady=0, expand=True, fill='both')
+        
 class MenuDemo(Tk):
     def __init__(self):
         Tk.__init__(self)
@@ -208,5 +282,5 @@ class MenuDemo(Tk):
 if __name__ == "__main__":
     ws=MenuDemo()
     ws.title('Electrocardiografo perronsote')
-    ws.geometry('1500x800')
+    ws.geometry('700x400')
     ws.mainloop()
