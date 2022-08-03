@@ -224,8 +224,8 @@ class MenuBar(Menu):
         y = []
         with open(filepath.name, 'r') as file:
             for line in file.readlines():
-                x.append(line.split(',')[0])
-                y.append(line.split(',')[1])
+                x.append(float(line.split(',')[0]))
+                y.append(float(line.split(',')[1]))
 
         self.frame_scanner = False
         self.widgetsedicion(str(filepath.name), x, y)
@@ -242,10 +242,6 @@ class MenuBar(Menu):
         filepath = filepath.split('/')
         filepath = filepath[len(filepath)-1]
 
-        for i in range(0, len(x)):
-            x[i] = float(x[i]) 
-            y[i] = float(y[i]) 
-        
         self.frame_principal.forget()
         self.frame_analisis = Frame(self.master, background=self.bg_color)
         self.frame_analisis.pack(fill='both', expand=5)
@@ -259,6 +255,7 @@ class MenuBar(Menu):
         fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(0,5))
         plt.title(filepath, color = '#000000', size = 12, family = 'Arial')
         posiciones = self.valores_mas_alto(y)
+        ax.grid(axis='both',linestyle='dotted', color='b')
         for i in range(0, len(posiciones)):
             plt.axvspan(x[posiciones[i]]-1, x[posiciones[i]]+1, color='red', alpha=0.3)
         line = ax.plot(x, y, color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
