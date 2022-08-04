@@ -7,6 +7,7 @@ from turtle import pd
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from numpy import arange
 import matplotlib.animation as animation
 from struct import unpack, calcsize, pack
 from socket import socket, AF_INET, SOCK_STREAM
@@ -220,13 +221,12 @@ class MenuBar(Menu):
             ),
             defaultextension='.txt',
         )
-        x = []
         y = []
         with open(filepath.name, 'r') as file:
             for line in file.readlines():
-                x.append(float(line.split(',')[0]))
                 y.append(float(line.split(',')[1]))
 
+        x = [i for i in arange(0, 20, 0.01)] #! cambiar vector de tiempo
         self.frame_scanner = False
         self.widgetsedicion(str(filepath.name), x, y)
 
@@ -257,7 +257,7 @@ class MenuBar(Menu):
         posiciones = self.valores_mas_alto(y)
         ax.grid(axis='both',linestyle='dotted', color='b')
         for i in range(0, len(posiciones)):
-            plt.axvspan(x[posiciones[i]]-1, x[posiciones[i]]+1, color='red', alpha=0.3)
+            plt.axvspan(x[posiciones[i]]-0.08, x[posiciones[i]]+0.08, color='red', alpha=0.3)
         line = ax.plot(x, y, color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
         
         ax.set_facecolor('#ffffff')
@@ -278,6 +278,8 @@ class MenuDemo(Tk):
 
 if __name__ == "__main__":
     ws=MenuDemo()
+    width = ws.winfo_screenwidth()
+    height = ws.winfo_screenheight()
+    ws.geometry("%dx%d" % (width, height))
     ws.title('Electrocardiografo perronsote')
-    ws.geometry('700x400')
     ws.mainloop()
