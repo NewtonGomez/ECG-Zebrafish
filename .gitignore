@@ -1,6 +1,6 @@
 env/
 workspace/
 tests_node/
-ecuacion.txt
-filtros.py
+test/ecuacion.txt
 __pycache__/
+data/

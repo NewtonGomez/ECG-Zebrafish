@@ -1,16 +1,15 @@
 from collections import deque
 from tkinter import *
-from tkinter.ttk import Style, Scale
+from tkinter.ttk import Progressbar, Style, Scale
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter import messagebox
-from turtle import pd
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from numpy import arange
+import webbrowser
 import matplotlib.animation as animation
 from struct import unpack, calcsize, pack
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import gethostbyname, gethostname, socket, AF_INET, SOCK_STREAM, getfqdn
 
 class MenuBar(Menu):
     def __init__(self, ws):
@@ -35,6 +34,8 @@ class MenuBar(Menu):
         self.conectar.add_command(label='Conectar', command=self.conectar_serial)
         self.conectar.add_separator()
         self.conectar.add_command(label='Desconectar', command=self.desconectar_serial)
+        self.conectar.add_separator()
+        self.conectar.add_command(label='Buscar Dispostivo', command=self.establecerConexion)
         self.add_cascade(label='Conectar', underline=0, menu=self.conectar)
 
         edit = Menu(self, tearoff=0)  
@@ -43,7 +44,8 @@ class MenuBar(Menu):
         self.add_cascade(label="Editar", menu=edit) 
 
         help = Menu(self, tearoff=0)  
-        help.add_command(label="About", command=self.about)  
+        help.add_command(label="Manual", command=lambda: webbrowser.open('https://qastack.mx/programming/4302027/how-to-open-a-url-in-python'))  
+        help.add_command(label="Acerca De", command=lambda: webbrowser.open('https://qastack.mx/programming/4302027/how-to-open-a-url-in-python'))  
         self.add_cascade(label="Ayuda", menu=help)  
         
         self.Widgets()
@@ -163,12 +165,20 @@ class MenuBar(Menu):
         self.client.sendall(pack('s', 'hola mundo'))
 
     def conectar_serial(self): 
+        line = str()
+        with open('data/conexiones.txt', 'r') as file:
+            for line in file.readlines():
+                if 'host' in line:
+                    hostip = line
+                    break
+            file.close()
+
         if self.conectado:
             messagebox.showerror('Error de conexion', 'Usted ya tiene una conexión con un dispositivo analizador.')
         else:
             try:
                 self.client = socket(AF_INET, SOCK_STREAM)
-                host = ('192.168.100.40', 9999)
+                host = (hostip, 9999)
                 self.client.connect(host)
                 
                 messagebox.showinfo('Conectado', 'Listo para gráficar el electrocardiograma.')
@@ -191,9 +201,6 @@ class MenuBar(Menu):
 
     def exit(self):
         self.exit
-
-    def about(self):
-            messagebox.showinfo('Electrocardiográfo perron', 'Python Guides aims at providing best practical tutorials')
 
     def guardar(self):
         filepath = asksaveasfile(
@@ -270,6 +277,51 @@ class MenuBar(Menu):
         NavigationToolbar2Tk(canvas, graphic_frame)
         canvas.get_tk_widget().pack(padx=0, pady=0, expand=True, fill='both')
         
+    def analizarRed(self):
+        ip_local = gethostbyname(gethostname())
+        ip_local = ip_local.split('.')
+        ip_modified = str()
+        host_list = list()
+        
+        for host in range(1, 5):
+            for i in range(0, 3):
+                ip_modified += str(ip_local[i]) + '.'
+            
+            ip_modified += str(host)
+            self.porcentaje.set(str(round(host/4*100))+' %')
+            self.progreso.update()
+            host_list.append(getfqdn(ip_modified))
+            self.progressbar['value'] += host/4*100
+            ip_modified = ''
+        
+        return host_list
+
+    def establecerConexion(self):
+        self.porcentaje = StringVar()
+        self.porcentaje.set('0 %')
+
+        newWindow = Toplevel(self.master)
+        newWindow.title('Analizando Red')
+        
+        Label(newWindow, text='Buscando dispositivos', font=('Arial', 30)).pack(fill='both', padx=20, pady=30)
+        
+        self.progreso = Label(newWindow, textvariable=self.porcentaje, font=('Arial', 15))
+        self.progreso.pack(fill='both')
+        
+        self.progressbar = Progressbar(newWindow, orient=HORIZONTAL, length=100, mode='determinate')
+        self.progressbar.pack(fill='both', pady=30, padx=20)
+        host_list = self.analizarRed()
+        newWindow.destroy()
+
+        with open('data/conexiones.txt', 'a') as file:
+            for host in host_list:
+                if 'micro' == host: #! CAMBIAR STR DE BUSQUEDA AL NOMBRE DEL MICRO
+                    file.write(str(host)+'\n')
+                    break
+            file.close()
+
+        self.conectar_serial()
+
 class MenuDemo(Tk):
     def __init__(self):
         Tk.__init__(self)
