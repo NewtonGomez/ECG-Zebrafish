@@ -4,3 +4,4 @@ tests_node/
 test/ecuacion.txt
 __pycache__/
 data/
+.vscode/

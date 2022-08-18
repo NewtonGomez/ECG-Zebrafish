@@ -5,16 +5,62 @@ from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter import messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from numpy import arange
+import pandas as pd
 import webbrowser
 import matplotlib.animation as animation
 from struct import unpack, calcsize, pack
 from socket import gethostbyname, gethostname, socket, AF_INET, SOCK_STREAM, getfqdn
+import math
+import numpy as np
+
+def ecg_analyzer(dataset) -> dict:
+    sampleRate = 2000
+    hrw = 0.25 #One-sided window size, as proportion of the sampling frequency
+    fs = sampleRate #The example dataset was recorded at 100Hz
+
+    mov_avg = dataset['hart'].rolling(int(hrw*fs)).mean() #Calculate moving average
+    #Impute where moving average function returns NaN, which is the beginning of the signal where x hrw
+    avg_hr = (np.mean(dataset.hart[:sampleRate]))
+    mov_avg = [avg_hr if math.isnan(x) else x for x in mov_avg]
+    mov_avg = [x*1.2 for x in mov_avg] 
+    dataset['hart_rollingmean'] = mov_avg #Append the moving average to the dataframe
+
+    #Mark regions of interest
+    window = []
+    peaklist = []
+    listpos = 0 #We use a counter to move over the different data columns
+
+    for datapoint in dataset.hart:
+        rollingmean = dataset.hart_rollingmean[listpos] #Get local mean
+        if (datapoint < rollingmean) and (len(window) < 1): #If no detectable R-complex activity -> do nothing
+            listpos += 1
+        elif (datapoint > rollingmean): #If signal comes above local mean, mark ROI
+            window.append(datapoint)
+            listpos += 1
+        else: #If signal drops below local mean -> determine highest point
+            beatposition = listpos - len(window) + (window.index(max(window))) #Notate the position of the point on the X-axis
+            peaklist.append(beatposition) #Add detected peak to list
+            window = [] #Clear marked ROI
+            listpos += 1
+
+    ybeat = [dataset.hart[x] for x in peaklist] #Get the y-value of all peaks for plotting purposes
+
+    RR_list = []
+    cnt = 0
+
+    while (cnt < (len(peaklist)-1)):
+        RR_interval = (peaklist[cnt+1] - peaklist[cnt]) #Calculate distance between beats in # of samples
+        ms_dist = ((RR_interval / fs) * float(sampleRate)) #Convert sample distances to ms distances
+        RR_list.append(ms_dist) #Append to list
+        cnt += 1
+
+    bpm = round(60000 / np.mean(RR_list))
+    return {'x':peaklist, 'y':ybeat, 'bpm':bpm}
 
 class MenuBar(Menu):
     def __init__(self, ws):
         Menu.__init__(self, ws)
-        self.muestra = 2000
+        self.muestra = 2700
         self.offset = StringVar()
         self.bg_color = '#D3D3D3'
         self.conectado = False
@@ -38,10 +84,16 @@ class MenuBar(Menu):
         self.conectar.add_command(label='Buscar Dispostivo', command=self.establecerConexion)
         self.add_cascade(label='Conectar', underline=0, menu=self.conectar)
 
-        edit = Menu(self, tearoff=0)  
-        edit.add_command(label="Deshacer")  
-        edit.add_separator()     
-        self.add_cascade(label="Editar", menu=edit) 
+        self.edit = Menu(self, tearoff=0)  
+        self.edit.add_command(label="Deshacer")  
+        self.edit.add_command(label="Rehacer")  
+        self.edit.add_separator()
+        self.add_cascade(label="Editar", menu=self.edit) 
+
+        self.filtros = Menu(self.edit, tearoff=0)
+        self.filtros.add_command(label="Crear Filtro", command= self.DiseñarFiltro)
+        self.filtros.add_command(label="Aplicar Filtro", command=self.AplicarFiltros)
+        self.edit.add_cascade(label='Filtros', menu=self.filtros)
 
         help = Menu(self, tearoff=0)  
         help.add_command(label="Manual", command=lambda: webbrowser.open('https://qastack.mx/programming/4302027/how-to-open-a-url-in-python'))  
@@ -72,6 +124,8 @@ class MenuBar(Menu):
 
         self.fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,5))
         plt.title('ELECTROCARDIOGRAMA', color = '#000000', size = 12, family = 'Arial')
+        plt.xlabel('Muestras por segundo "Muestras/s"')
+        plt.ylabel('Voltaje "V"')
         ax.tick_params(direction='out', length=5, width = 2, colors='#000000', grid_color='r', grid_alpha=0.5)
         self.line, = ax.plot([],[],color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
         
@@ -168,7 +222,7 @@ class MenuBar(Menu):
         line = str()
         with open('data/conexiones.txt', 'r') as file:
             for line in file.readlines():
-                if 'host' in line:
+                if '192.168.0.25' in line:
                     hostip = line
                     break
             file.close()
@@ -226,26 +280,15 @@ class MenuBar(Menu):
                 ("Text files", "*.txt"),
                 ('CSV (Delimitado por comas)', '*.csv')
             ),
-            defaultextension='.txt',
+            defaultextension='.csv',
         )
-        y = []
-        with open(filepath.name, 'r') as file:
-            for line in file.readlines():
-                y.append(float(line.split(',')[1]))
+        
+        dataset = pd.read_csv(filepath)
 
-        x = [i for i in arange(0, 20, 0.01)] #! cambiar vector de tiempo
         self.frame_scanner = False
-        self.widgetsedicion(str(filepath.name), x, y)
+        self.widgetsedicion(str(filepath.name), dataset)
 
-    def valores_mas_alto(self, lista: list):
-        posiciones = []
-        valor = 12
-        for i in range(0, len(lista)):
-            if lista[i] > valor:
-                posiciones.append(i)
-        return posiciones
-
-    def widgetsedicion(self, filepath, x, y):
+    def widgetsedicion(self, filepath, dataset):
         filepath = filepath.split('/')
         filepath = filepath[len(filepath)-1]
 
@@ -261,12 +304,18 @@ class MenuBar(Menu):
 
         fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(0,5))
         plt.title(filepath, color = '#000000', size = 12, family = 'Arial')
-        posiciones = self.valores_mas_alto(y)
-        ax.grid(axis='both',linestyle='dotted', color='b')
-        for i in range(0, len(posiciones)):
-            plt.axvspan(x[posiciones[i]]-0.08, x[posiciones[i]]+0.08, color='red', alpha=0.3)
-        line = ax.plot(x, y, color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
         
+        ecg = ecg_analyzer(dataset=dataset)
+        peaklist = ecg['x']
+        ybeat = ecg['y']
+        bpm = ecg['bpm']
+        x = [t for t in range(0, 2000)]
+        y = dataset['hart']
+
+        ax.plot(x, y)
+        ax.scatter(peaklist, ybeat, color='red', label=f"BPM: {bpm}")
+        ax.legend(loc=4, framealpha=0.8)
+
         ax.set_facecolor('#ffffff')
         ax.spines['bottom'].set_color('blue')
         ax.spines['left'].set_color('blue')
@@ -321,6 +370,12 @@ class MenuBar(Menu):
             file.close()
 
         self.conectar_serial()
+
+    def DiseñarFiltro(self):
+        pass
+
+    def AplicarFiltros(self):
+        pass
 
 class MenuDemo(Tk):
     def __init__(self):
