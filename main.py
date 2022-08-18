@@ -656,7 +656,7 @@ class MenuBar(Menu):
         messagebox.showinfo("Listo", f"El registro se ha guardado con éxito\nGuardado en {filepath.name}")
     
     def abrir_archivo(self):
-        filepath = askopenfile(
+        self.filepath = askopenfile(
             filetypes=(
                 ('CSV (Delimitado por comas)', '*.csv'), 
                 ("Text files", "*.txt"),
@@ -664,21 +664,23 @@ class MenuBar(Menu):
             defaultextension='.csv',
         )
         
-        dataset = pd.read_csv(filepath)
+        self.dataset = pd.read_csv(self.filepath)
 
         self.frame_scanner = False
-        self.widgetsedicion(str(filepath.name), dataset)
+        self.frame_principal.forget()
+        
+        self.frame_analisis = Frame(self.master, background=self.bg_color)
+        self.frame_analisis.pack(fill='both', expand=5)
+        
+        self.edit.entryconfig('Filtros', state='normal')
+       
+        self.widgetsedicion(str(self.filepath.name), self.dataset)
 
     def widgetsedicion(self, filepath, dataset):
         filepath = filepath.split('/')
         filepath = filepath[len(filepath)-1]
 
-        self.edit.entryconfig('Filtros', state='normal')
-
-        self.frame_principal.forget()
-        self.frame_analisis = Frame(self.master, background=self.bg_color)
-        self.frame_analisis.pack(fill='both', expand=5)
-
+        
         self.frame_analisis.columnconfigure(0, weight=1)
         self.frame_analisis.rowconfigure(0, weight=5)
 
@@ -762,9 +764,41 @@ class MenuBar(Menu):
         ws.title('Electrocardiografo perronsote')
         ws.mainloop()
 
-    def AplicarFiltros(self, feed):
-        print(feed.get())
+    def AplicarFiltros(self, filtro):
         #! falta aplicar filtros
+        self.frame_analisis.forget()
+        
+        self.frame_analisis = Frame(self.master, background=self.bg_color)
+        self.frame_analisis.pack(fill='both', expand=5)
+ 
+        with open('config/filtros.json') as feedsjson:
+            feeds = json.load(feedsjson)
+            feedsjson.close()
+
+        data = list()
+        for key, values in feeds.items():
+            if key == filtro.get():
+                data.append(key)
+                for kew, value in values.items():
+                    data.append([kew, value])
+
+        if data[1][1] == 'pasabandas':
+            b, a = butterBandPassFilter(data[2][1], data[3][1], 2000, data[4][1])
+        elif data[1][1] == 'rechazabandas':
+            b, a = butterBandStopFilter(data[2][1], data[3][1], 2000, data[4][1])
+        
+        filteredData = signal.lfilter(b, a, self.dataset)
+        
+        tiempo = 0
+        with open('config/aux.csv', 'a') as file:
+            for data in filteredData:
+                file.write(f'{round(tiempo, 3)},{data}\n')
+                tiempo  += 60/2000
+            file.close()
+
+        filteredData = pd.read_csv('config/aux.csv')
+        self.widgetsedicion(str(self.filepath.name), self.dataset)
+
 
 
 class MenuDemo(Tk):
