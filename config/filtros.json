@@ -1,0 +1,14 @@
+{
+  "60hz": {
+    "type": "rechazabandas",
+    "lowcut": 59,
+    "highcut": 61,
+    "order": 4
+  },
+  "test": {
+    "type": "pasabandas",
+    "lowcut": 5,
+    "highcut": 55,
+    "order": 4
+  }
+}

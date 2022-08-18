@@ -1,17 +1,44 @@
+from calendar import firstweekday
 from collections import deque
+from operator import truediv
 from tkinter import *
-from tkinter.ttk import Progressbar, Style, Scale
+from tkinter import Tk
+from tkinter.font import BOLD
+from tkinter.ttk import Progressbar, Style, Scale, Treeview
 from tkinter.filedialog import askopenfile, asksaveasfile
 from tkinter import messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import pandas as pd
 import webbrowser
+import json
 import matplotlib.animation as animation
 from struct import unpack, calcsize, pack
 from socket import gethostbyname, gethostname, socket, AF_INET, SOCK_STREAM, getfqdn
 import math
 import numpy as np
+import os
+from scipy import signal
+
+class Toolbar(NavigationToolbar2Tk):
+
+    def set_message(self, s):
+        pass
+
+def butterBandPassFilter(lowcut, hihgcut, samplerate, order):
+    semiSamplerate = samplerate*0.5
+    low = lowcut / semiSamplerate
+    high = hihgcut / semiSamplerate
+    b, a = signal.butter(order, [low, high], btype='bandpass')
+    return b, a
+
+def butterBandStopFilter(lowcut, highcut, samplerate, order):
+    "Generar filtro de parada de banda de Butterworth"
+    semiSampleRate = samplerate*0.5
+    low = lowcut / semiSampleRate
+    high = highcut / semiSampleRate
+    b,a = signal.butter(order,[low,high],btype='bandstop')
+    return b,a
 
 def ecg_analyzer(dataset) -> dict:
     sampleRate = 2000
@@ -57,15 +84,352 @@ def ecg_analyzer(dataset) -> dict:
     bpm = round(60000 / np.mean(RR_list))
     return {'x':peaklist, 'y':ybeat, 'bpm':bpm}
 
+class FilterDesign(Menu):
+    def __init__(self, ws) -> None:
+        self.ws= ws
+        self.ws.protocol('WM_DELETE_WINDOW',self.AskQuit)
+        Menu.__init__(self, ws)
+        self.bg_color = '#D3D3D3'
+
+        file = Menu(self, tearoff=False)
+        file.add_command(label="Nuevo", command=self.newFilter)  
+        file.add_command(label="Abrir", command=self.openFilter)  
+        file.add_command(label="Guardar", command=self.saveFilter)  
+        file.add_separator()
+        file.add_command(label="Salir", underline=1, command=self.AskQuit)
+        self.add_cascade(label="Archivo",underline=0, menu=file)
+        
+        self.edit = Menu(self, tearoff=0)  
+        self.edit.add_command(label="Deshacer")  
+        self.edit.add_command(label="Rehacer")  
+        self.edit.add_separator()
+        self.add_cascade(label="Editar", menu=self.edit) 
+
+        self.framePrincipal = Frame(self.master, bg=self.bg_color)
+        self.framePrincipal.pack(fill='both', expand=5)
+
+        self.widgets()
+    
+    def widgets(self):
+        def graphWdiget(title):
+            fig, self.ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,3))
+            plt.title(title, color = '#000000', size = 12, family = 'Arial')
+            plt.xlabel('Frecuencia (Hz)')
+            plt.ylabel('Power')
+            self.ax.tick_params(direction='out', length=5, width = 2, colors='#000000', grid_color='r', grid_alpha=0.5)
+            
+            self.ax.set_facecolor('#ffffff')
+            self.ax.spines['bottom'].set_color('blue')
+            self.ax.spines['left'].set_color('blue')
+            self.ax.spines['top'].set_color('blue')
+            self.ax.spines['right'].set_color('blue')
+
+            self.canvas = FigureCanvasTkAgg(fig, master = self.frame_derecho_superior)
+            toolbar = Toolbar(self.canvas, self.frame_derecho_inferior)
+            toolbar.config(background = self.bg_color)
+            self.canvas.get_tk_widget().pack(padx=10, pady=5, expand=True, fill='both')
+
+
+        self.frame_izquierdo = Frame(self.framePrincipal, bg=self.bg_color, bd=2)
+        self.frame_izquierdo.grid(row=1, column=1)
+        
+        self.frame_izquierdo_inferior = Frame(self.framePrincipal, bg=self.bg_color)
+        self.frame_izquierdo_inferior.grid(row=2, column=1)
+
+        self.generateFrames()
+
+        Label(self.frame_izquierdo, text='Parametros del Filtro:', bg=self.bg_color, font=('Arial', 15, BOLD)).grid(row=1, column=1)
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=2, column=1)
+        Label(self.frame_izquierdo, text='Tipo de filtro:', bg=self.bg_color, font=('Arial', 12)).grid(row=3, column=1)
+        
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=5, column=1)
+
+        self.kindFilter= IntVar()
+        Checkbutton(self.frame_izquierdo, text='PasaBandas', variable=self.kindFilter, onvalue=1, offvalue=0, bg=self.bg_color, font=('Arial', 12)).grid(row=5, column=1)
+        Checkbutton(self.frame_izquierdo, text='RechazaBandas', variable=self.kindFilter, onvalue=2, offvalue=0, bg=self.bg_color, font=('Arial', 12)).grid(row=5, column=2)
+
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=6, column=1)
+        
+        Label(self.frame_izquierdo, text='Nombre:', bg=self.bg_color, font=('Arial', 12)).grid(row=7, column=1)
+        self.nombre = Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.nombre.grid(row=7, column=2)
+        
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=8, column=1)
+
+        Label(self.frame_izquierdo, text='Frecuencia Corte Bajo:', bg=self.bg_color, font=('Arial', 12)).grid(row=9, column=1)
+        self.lowcut = Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.lowcut.grid(row=9, column=2)
+
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=10, column=1)
+        
+        Label(self.frame_izquierdo, text='Frecuencia Corte Alto:', bg=self.bg_color, font=('Arial', 12)).grid(row=11, column=1)
+        self.highcut= Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.highcut.grid(row=11, column=2)
+        
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=12, column=1)
+        
+        Label(self.frame_izquierdo, text='Orden del Filtro:', bg=self.bg_color, font=('Arial', 12)).grid(row=13, column=1)
+        self.order= Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.order.grid(row=13, column=2)
+        
+        generar = Button(self.frame_izquierdo_inferior, text='Generar Filtro', bd=1, font=('Arial', 12), command=self.generateFilter)
+        generar.pack(expand=True)
+
+        graphWdiget('Frecuencia de corte')
+    
+    def graphWdiget(self, title):
+            fig, self.ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,3))
+            plt.title(title, color = '#000000', size = 12, family = 'Arial')
+            plt.xlabel('Frecuencia (Hz)')
+            plt.ylabel('Power')
+            self.ax.tick_params(direction='out', length=5, width = 2, colors='#000000', grid_color='r', grid_alpha=0.5)
+            
+            self.ax.set_facecolor('#ffffff')
+            self.ax.spines['bottom'].set_color('blue')
+            self.ax.spines['left'].set_color('blue')
+            self.ax.spines['top'].set_color('blue')
+            self.ax.spines['right'].set_color('blue')
+
+            self.canvas = FigureCanvasTkAgg(fig, master = self.frame_derecho_superior)
+            toolbar = Toolbar(self.canvas, self.frame_derecho_inferior)
+            toolbar.config(background = self.bg_color)
+            self.canvas.get_tk_widget().pack(padx=10, pady=5, expand=True, fill='both')
+
+    def widgetsOpen(self):        
+        filepath = 'config/filtros.json'
+        with open(filepath) as feedsjson:
+            feeds = json.load(feedsjson)
+            feedsjson.close()
+
+        data = list()
+        for key, value in feeds.items():
+            if key == self.openData[0]:
+                data.append(key)
+                for kew, dat in value.items():
+                    data.append([kew, dat])
+                break
+
+        self.frame_izquierdo = Frame(self.framePrincipal, bg=self.bg_color, bd=2)
+        self.frame_izquierdo.grid(row=1, column=1)
+        
+        self.frame_izquierdo_inferior = Frame(self.framePrincipal, bg=self.bg_color)
+        self.frame_izquierdo_inferior.grid(row=2, column=1)
+
+        self.generateFrames()
+            
+
+        Label(self.frame_izquierdo, text=f'Parametros del Filtro: {data[0]}', bg=self.bg_color, font=('Arial', 13, BOLD)).grid(row=1, column=1)
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=2, column=1)
+        Label(self.frame_izquierdo, text='Tipo de filtro:', bg=self.bg_color, font=('Arial', 12)).grid(row=3, column=1)
+        
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=5, column=1)
+
+        self.kindFilter= IntVar()
+        if data[1][1] == 'pasabandas':
+            self.kindFilter.set(1)
+        elif data[1][1] == 'rechazabandas':
+            self.kindFilter.set(2)
+
+        Checkbutton(self.frame_izquierdo, text='PasaBandas', variable=self.kindFilter, onvalue=1, offvalue=0, bg=self.bg_color, font=('Arial', 12)).grid(row=5, column=1)
+        Checkbutton(self.frame_izquierdo, text='RechazaBandas', variable=self.kindFilter, onvalue=2, offvalue=0, bg=self.bg_color, font=('Arial', 12)).grid(row=5, column=2)
+
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=6, column=1)
+        
+        Label(self.frame_izquierdo, text='Nombre:', bg=self.bg_color, font=('Arial', 12)).grid(row=7, column=1)
+        self.nombre = Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.nombre.insert(END, data[0])
+        self.nombre.grid(row=7, column=2)
+        
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=8, column=1)
+
+        Label(self.frame_izquierdo, text='Frecuencia Corte Bajo:', bg=self.bg_color, font=('Arial', 12)).grid(row=9, column=1)
+        self.lowcut = Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.lowcut.insert(END, data[2][1])
+        self.lowcut.grid(row=9, column=2)
+
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=10, column=1)
+        
+        Label(self.frame_izquierdo, text='Frecuencia Corte Alto:', bg=self.bg_color, font=('Arial', 12)).grid(row=11, column=1)
+        self.highcut= Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.highcut.insert(END, data[3][1])
+        self.highcut.grid(row=11, column=2)
+        
+        Label(self.frame_izquierdo, text='   ', bg=self.bg_color, font=('Arial', 12, BOLD)).grid(row=12, column=1)
+        
+        Label(self.frame_izquierdo, text='Orden del Filtro:', bg=self.bg_color, font=('Arial', 12)).grid(row=13, column=1)
+        self.order= Entry(self.frame_izquierdo, font=('Arial', 12))
+        self.order.insert(END, data[4][1])
+        self.order.grid(row=13, column=2)
+        
+        generar = Button(self.frame_izquierdo_inferior, text='Generar Filtro', bd=1, font=('Arial', 12), command=self.generateFilter)
+        generar.pack(expand=True)
+
+
+        self.graphWdiget('Frecuencia de corte')
+        self.generateFilter()
+    
+    def generateFrames(self):
+        self.frame_derecho_superior = Frame(self.framePrincipal, bg=self.bg_color)
+        self.frame_derecho_superior.grid(row=1, column=2, columnspan=5, pady=10)
+        
+        self.frame_derecho_inferior = Frame(self.framePrincipal, bg=self.bg_color)
+        self.frame_derecho_inferior.grid(row=2, column=2, columnspan=5, pady=5)
+
+    def generateFilter(self):
+        if self.kindFilter.get() == 0:
+            messagebox.showerror('Error', 'Por favor selecciona el tipo de filtro')
+
+        self.frame_derecho_superior.forget()
+        self.frame_derecho_inferior.forget()
+
+        self.generateFrames()
+        self.graphWdiget('Frecuencia de corte')
+        
+        if self.nombre.get() == '' or self.lowcut.get() == None or self.highcut.get() == '' or self.order.get() == '':
+                messagebox.showerror('Entrada Vacia', 'Una de tus entradas esta vacia')
+        else:
+            lowcut = int(self.lowcut.get())
+            highcut = int(self.highcut.get())
+            k = int(self.order.get())
+        
+            if self.kindFilter.get() == 1:
+                # filtro pasabandas        
+                b, a = butterBandPassFilter(lowcut, highcut, samplerate=2000, order=k)
+                w, h = signal.freqz(b, a, worN=2000)
+
+                self.ax.plot((2000*0.5/np.pi)*w,np.abs(h),label="order = %d" % k)
+                self.canvas.draw()
+
+            elif self.kindFilter.get() == 2:
+                # filtro rechazabandas
+                b, a = butterBandStopFilter(lowcut, highcut, samplerate=2000, order=k)
+                w, h = signal.freqz(b, a, worN=2000)
+
+                self.ax.plot((2000*0.5/np.pi)*w,np.abs(h),label="order = %d" % k)
+                self.canvas.draw()
+
+    def saveFilter(self):
+        if self.nombre.get() == '' or self.lowcut.get() == None or self.highcut.get() == '' or self.order.get() == '':
+                messagebox.showerror('Entrada Vacia', 'Una de tus entradas esta vacia')
+        else:
+            kindFilter = str()
+            if self.kindFilter.get() == 1:
+                kindFilter = 'pasabandas'
+            if self.kindFilter.get() == 2:
+                kindFilter = 'rechazabandas'
+
+            filterData = {
+                self.nombre.get(): {
+                    'type': kindFilter,
+                    'lowcut': int(self.lowcut.get()),
+                    'highcut': int(self.highcut.get()),
+                    'order': int(self.order.get())
+                }
+            }
+
+            filepath = 'config/filtros.json'
+            json_object = json.dumps(filterData, indent=4)
+            
+            if not os.path.isfile(filepath):
+                with open(filepath, "w") as outfile:
+                    outfile.write(json_object)
+                    outfile.close()
+                    messagebox.showinfo('Listo', 'Filtro agregado con éxito')
+            else:
+                with open(filepath) as feedsjson:
+                    feeds = json.load(feedsjson)
+                    feedsjson.close()
+                if self.nombre.get() in feeds:
+                    messagebox.showerror('Repetido', 'este nombre ya se usado con aterioridad')
+                else:
+                    feeds.update(filterData)
+                    with open(filepath, mode='w') as file:
+                        file.write(json.dumps(feeds, indent=2))
+                        file.close()
+
+                    messagebox.showinfo('Listo', 'Filtro agregado con éxito')
+
+    def openFilter(self):
+
+        def item_selected(event):
+            for selected_item in tree.selection():
+                item = tree.item(selected_item)
+                self.openData = item['values']
+                self.framePrincipal.forget()
+                
+                self.framePrincipal = Frame(self.master, bg=self.bg_color)
+                self.framePrincipal.pack(fill='both', expand=5)
+
+                self.widgetsOpen()
+
+        newwindow = Toplevel(self.ws)
+        width = self.ws.winfo_screenwidth()
+        height = self.ws.winfo_screenheight()
+        newwindow.geometry("%dx%d" % (width/3, height/3))
+
+        frame = Frame(newwindow, bg=self.bg_color)
+        frame.pack(fill='both', expand=True)
+
+        columnas = ('Nombre', 'Tipo')
+        tree = Treeview(frame, columns=columnas, show='headings')
+        tree.pack(fill='both', expand=True)
+        tree.heading('Nombre', text='Nombre', anchor=CENTER)
+        tree.heading('Tipo', text='Tipo', anchor=CENTER)
+        tree.bind('<<TreeviewSelect>>', item_selected)
+
+        filepath = 'config/filtros.json'
+
+        if not os.path.isfile(filepath):
+            with open(filepath, "w") as outfile:
+                messagebox.showerror('Sin filtros', 'Vaya esto parece estar un poco vacio')
+                outfile.close()
+                newwindow.quit()
+                newwindow.destroy()
+        else:
+            with open(filepath) as feedsjson:
+                feeds = json.load(feedsjson)
+                feedsjson.close()
+                
+                filters = list()
+                for key, values in feeds.items():
+                    for kind, value in values.items():
+                        if kind == 'type':
+                            filters.append((key, value))
+
+                for datafilter in filters:
+                    tree.insert('', END, values=datafilter)
+    
+    def newFilter(self):
+        self.framePrincipal.forget()
+        
+        self.framePrincipal = Frame(self.master, bg=self.bg_color)
+        self.framePrincipal.pack(fill='both', expand=5)
+
+        self.widgets()
+
+    def AskQuit(self):
+        self.ws.quit()
+        self.ws.destroy()
+
 class MenuBar(Menu):
     def __init__(self, ws):
+        self.ws = ws
+        self.ws.protocol('WM_DELETE_WINDOW',self.AskQuit)
         Menu.__init__(self, ws)
         self.muestra = 2700
         self.offset = StringVar()
         self.bg_color = '#D3D3D3'
         self.conectado = False
         self.frame_scanner = True
-        # grafica
+        
+        filepath = 'config/filtros.json'
+        if not os.path.isfile(filepath):
+            os.mkdir('config')
+            open(filepath, 'w').close()
+        else:    
+            with open(filepath) as feedsjson:
+                    feeds = json.load(feedsjson)
+                    feedsjson.close()
         
         file = Menu(self, tearoff=False)
         file.add_command(label="Abrir", command=self.abrir_archivo)  
@@ -73,7 +437,7 @@ class MenuBar(Menu):
         file.add_command(label="Guardar")  
         file.add_command(label="Guardar como", command=self.guardar)    
         file.add_separator()
-        file.add_command(label="Salir", underline=1, command=self.quit)
+        file.add_command(label="Salir", underline=1, command=self.AskQuit)
         self.add_cascade(label="Archivo",underline=0, menu=file)
         
         self.conectar = Menu(self, tearoff=0)
@@ -90,10 +454,18 @@ class MenuBar(Menu):
         self.edit.add_separator()
         self.add_cascade(label="Editar", menu=self.edit) 
 
+        chec = StringVar()
         self.filtros = Menu(self.edit, tearoff=0)
+            
+        for feed in feeds:
+            self.filtros.add_checkbutton(label=feed.upper(), variable=chec, onvalue=feed, offvalue='0', command=lambda: self.AplicarFiltros(chec))
+        
+        self.filtros.add_separator()
         self.filtros.add_command(label="Crear Filtro", command= self.DiseñarFiltro)
-        self.filtros.add_command(label="Aplicar Filtro", command=self.AplicarFiltros)
         self.edit.add_cascade(label='Filtros', menu=self.filtros)
+    
+        if self.frame_scanner:
+            self.edit.entryconfig('Filtros', state='disabled')
 
         help = Menu(self, tearoff=0)  
         help.add_command(label="Manual", command=lambda: webbrowser.open('https://qastack.mx/programming/4302027/how-to-open-a-url-in-python'))  
@@ -141,9 +513,15 @@ class MenuBar(Menu):
         self.datos_señal_uno = deque([0]*self.muestra, maxlen = self.muestra)
 
         self.frame_principal.columnconfigure(0, weight=1)
+        self.frame_principal.columnconfigure(0, weight=1)
         self.frame_principal.columnconfigure(1, weight=1)
         self.frame_principal.rowconfigure(0, weight=5)
         self.frame_principal.rowconfigure(1, weight=1) 
+        
+        self.variable_estado = StringVar()
+        self.variable_estado.set('Desconectado')
+        self.estado_conexion = Label(frame, textvariable=self.variable_estado, font=('Arial', 7), bg=self.bg_color, fg='red')
+        self.estado_conexion.pack()
 
         self.canvas = FigureCanvasTkAgg(self.fig, master = frame)
         self.canvas.get_tk_widget().pack(padx=0, pady=0, expand = True, fill='both')
@@ -238,6 +616,9 @@ class MenuBar(Menu):
                 messagebox.showinfo('Conectado', 'Listo para gráficar el electrocardiograma.')
                 self.conectado = True
                 self.bt_graficar.config(state='normal')
+                self.variable_estado.set('Conectado')
+                self.estado_conexion.config(fg='green', textvariable=self.variable_estado)
+                self.estado_conexion.update()
             except:
                 messagebox.showerror('Error de conexión', 'No se ha podido conectar con el dispositivo.\nRevise si este se encuentra encendido.')
 
@@ -253,13 +634,13 @@ class MenuBar(Menu):
         self.offset_number.set(str(round(float(self.slider_uno.get()), 3)) + ' v')
         self.label_offset.update()
 
-    def exit(self):
-        self.exit
+    def AskQuit(self):
+        self.ws.quit()
+        self.ws.destroy()
 
     def guardar(self):
         filepath = asksaveasfile(
             filetypes=(
-                ("Text files", "*.txt"),
                 ('CSV (Delimitado por comas)', '*.csv')
             ),
             defaultextension='.txt',
@@ -277,8 +658,8 @@ class MenuBar(Menu):
     def abrir_archivo(self):
         filepath = askopenfile(
             filetypes=(
+                ('CSV (Delimitado por comas)', '*.csv'), 
                 ("Text files", "*.txt"),
-                ('CSV (Delimitado por comas)', '*.csv')
             ),
             defaultextension='.csv',
         )
@@ -291,6 +672,8 @@ class MenuBar(Menu):
     def widgetsedicion(self, filepath, dataset):
         filepath = filepath.split('/')
         filepath = filepath[len(filepath)-1]
+
+        self.edit.entryconfig('Filtros', state='normal')
 
         self.frame_principal.forget()
         self.frame_analisis = Frame(self.master, background=self.bg_color)
@@ -372,15 +755,28 @@ class MenuBar(Menu):
         self.conectar_serial()
 
     def DiseñarFiltro(self):
-        pass
+        ws=MenuFilters()
+        width = ws.winfo_screenwidth()
+        height = ws.winfo_screenheight()
+        ws.geometry("%dx%d" % (width/2, height/2))
+        ws.title('Electrocardiografo perronsote')
+        ws.mainloop()
 
-    def AplicarFiltros(self):
-        pass
+    def AplicarFiltros(self, feed):
+        print(feed.get())
+        #! falta aplicar filtros
+
 
 class MenuDemo(Tk):
     def __init__(self):
         Tk.__init__(self)
         menubar = MenuBar(self)
+        self.config(menu=menubar)
+
+class MenuFilters(Tk):
+    def __init__(self):
+        Tk.__init__(self)
+        menubar = FilterDesign(self)
         self.config(menu=menubar)
 
 if __name__ == "__main__":
