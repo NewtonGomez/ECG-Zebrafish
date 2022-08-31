@@ -1,6 +1,4 @@
-from calendar import firstweekday
 from collections import deque
-from operator import truediv
 from tkinter import *
 from tkinter import Tk
 from tkinter.font import BOLD
@@ -431,6 +429,7 @@ class MenuBar(Menu):
                     feeds = json.load(feedsjson)
                     feedsjson.close()
         
+        self.filtros_aplicados = list()
         file = Menu(self, tearoff=False)
         file.add_command(label="Abrir", command=self.abrir_archivo)  
         file.add_command(label="Nuevo", command=self.nuevo_escaner)  
@@ -456,10 +455,10 @@ class MenuBar(Menu):
 
         chec = StringVar()
         self.filtros = Menu(self.edit, tearoff=0)
-            
+
         for feed in feeds:
             self.filtros.add_checkbutton(label=feed.upper(), variable=chec, onvalue=feed, offvalue='0', command=lambda: self.AplicarFiltros(chec))
-        
+
         self.filtros.add_separator()
         self.filtros.add_command(label="Crear Filtro", command= self.DiseñarFiltro)
         self.edit.add_cascade(label='Filtros', menu=self.filtros)
@@ -684,7 +683,7 @@ class MenuBar(Menu):
         self.frame_analisis.columnconfigure(0, weight=1)
         self.frame_analisis.rowconfigure(0, weight=5)
 
-        graphic_frame = Frame(self.frame_analisis, bd=2)
+        graphic_frame = Frame(self.frame_analisis, bd=0)
         graphic_frame.grid(column=0, row=0, columnspan=5, sticky='nsew')
 
         fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(0,5))
@@ -765,12 +764,11 @@ class MenuBar(Menu):
         ws.mainloop()
 
     def AplicarFiltros(self, filtro):
-        #! falta aplicar filtros
         self.frame_analisis.forget()
         
         self.frame_analisis = Frame(self.master, background=self.bg_color)
         self.frame_analisis.pack(fill='both', expand=5)
- 
+
         with open('config/filtros.json') as feedsjson:
             feeds = json.load(feedsjson)
             feedsjson.close()
@@ -781,25 +779,30 @@ class MenuBar(Menu):
                 data.append(key)
                 for kew, value in values.items():
                     data.append([kew, value])
-
+        nombre = data[0]
         if data[1][1] == 'pasabandas':
             b, a = butterBandPassFilter(data[2][1], data[3][1], 2000, data[4][1])
         elif data[1][1] == 'rechazabandas':
             b, a = butterBandStopFilter(data[2][1], data[3][1], 2000, data[4][1])
         
-        filteredData = signal.lfilter(b, a, self.dataset)
+        aux = list()
+        for x in self.dataset.hart:
+            aux.append(x)
+        filteredData = signal.lfilter(b, a, aux)
+        del aux
         
+        filteredData = filteredData.tolist()
         tiempo = 0
         with open('config/aux.csv', 'a') as file:
+            file.write('t,hart\n')
             for data in filteredData:
-                file.write(f'{round(tiempo, 3)},{data}\n')
+                file.write(f'{round(tiempo, 3)},{round(data, 2)}\n')
                 tiempo  += 60/2000
             file.close()
-
+        
         filteredData = pd.read_csv('config/aux.csv')
-        self.widgetsedicion(str(self.filepath.name), self.dataset)
-
-
+        self.widgetsedicion(str(self.filepath.name), filteredData)
+        messagebox.showinfo('Listo', f'Se ha aplicado el filtro: {nombre}')
 
 class MenuDemo(Tk):
     def __init__(self):
