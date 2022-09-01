@@ -39,7 +39,7 @@ def butterBandStopFilter(lowcut, highcut, samplerate, order):
     return b,a
 
 def ecg_analyzer(dataset) -> dict:
-    sampleRate = 2000
+    sampleRate = 1000
     hrw = 0.25 #One-sided window size, as proportion of the sampling frequency
     fs = sampleRate #The example dataset was recorded at 100Hz
 
@@ -59,7 +59,8 @@ def ecg_analyzer(dataset) -> dict:
         rollingmean = dataset.hart_rollingmean[listpos] #Get local mean
         if (datapoint < rollingmean) and (len(window) < 1): #If no detectable R-complex activity -> do nothing
             listpos += 1
-        elif (datapoint > rollingmean): #If signal comes above local mean, mark ROI
+        elif (datapoint > rollingmean):
+            print(datapoint) #If signal comes above local mean, mark ROI
             window.append(datapoint)
             listpos += 1
         else: #If signal drops below local mean -> determine highest point
@@ -81,6 +82,49 @@ def ecg_analyzer(dataset) -> dict:
 
     bpm = round(60000 / np.mean(RR_list))
     return {'x':peaklist, 'y':ybeat, 'bpm':bpm}
+
+def getbpm(dataset) -> list:
+    dataset = pd.DataFrame([i for i in dataset if i != 9.5])
+    dataset.columns = ['hart']
+    sampleRate = 1000
+    hrw = 0.25 
+    fs = sampleRate
+
+    mov_avg = dataset['hart'].rolling(int(hrw*fs)).mean() 
+   
+    avg_hr = (np.mean(dataset.hart[:sampleRate]))
+    mov_avg = [avg_hr if math.isnan(x) else x for x in mov_avg]
+    mov_avg = [x*1.2 for x in mov_avg] 
+    dataset['hart_rollingmean'] = mov_avg 
+    
+    window = []
+    peaklist = []
+    listpos = 0 
+
+    for datapoint in dataset.hart:
+        rollingmean = dataset.hart_rollingmean[listpos] 
+        if (datapoint < rollingmean) and (len(window) < 1):
+            listpos += 1
+        elif (datapoint > rollingmean): 
+            window.append(datapoint)
+            listpos += 1
+        else: 
+            beatposition = listpos - len(window) + (window.index(max(window))) 
+            peaklist.append(beatposition) 
+            window = [] 
+            listpos += 1
+
+    RR_list = []
+    cnt = 0
+
+    while (cnt < (len(peaklist)-1)):
+        RR_interval = (peaklist[cnt+1] - peaklist[cnt]) 
+        ms_dist = ((RR_interval / fs) * float(sampleRate)) 
+        RR_list.append(ms_dist)
+        cnt += 1
+    
+    bpm = round(30000 / np.mean(RR_list))
+    return int(bpm), list(dataset.hart_rollingmean)
 
 class FilterDesign(Menu):
     def __init__(self, ws) -> None:
@@ -412,9 +456,11 @@ class FilterDesign(Menu):
 class MenuBar(Menu):
     def __init__(self, ws):
         self.ws = ws
+        self.temporizador = 0
+        self.tiempo = 0
         self.ws.protocol('WM_DELETE_WINDOW',self.AskQuit)
         Menu.__init__(self, ws)
-        self.muestra = 2700
+        self.muestra = 1000
         self.offset = StringVar()
         self.bg_color = '#D3D3D3'
         self.conectado = False
@@ -429,7 +475,6 @@ class MenuBar(Menu):
                     feeds = json.load(feedsjson)
                     feedsjson.close()
         
-        self.filtros_aplicados = list()
         file = Menu(self, tearoff=False)
         file.add_command(label="Abrir", command=self.abrir_archivo)  
         file.add_command(label="Nuevo", command=self.nuevo_escaner)  
@@ -483,7 +528,7 @@ class MenuBar(Menu):
     def Widgets(self):
         self.frame_principal = Frame(self.master)
         self.frame_principal.pack(fill='both', expand=5)
-
+        
         frame = Frame(self.frame_principal, bg=self.bg_color, bd=2)
         frame.grid(column= 0, columnspan = 5, row = 0, sticky = 'nsew')
         # botones de conexion
@@ -493,15 +538,22 @@ class MenuBar(Menu):
         frame_sliders = Frame(self.frame_principal, bg = self.bg_color)
         frame_sliders.grid(column=1, row=1, sticky = 'nsew')
 
+        self.bpm = StringVar()
+        self.bpm.set('BPM: 0')
+        self.label_bpm = Label(frame_izquierda, textvariable=self.bpm, font=('Arial', 40), bg=self.bg_color)
+        self.label_bpm.pack(fill='both')
+
         self.fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,5))
         plt.title('ELECTROCARDIOGRAMA', color = '#000000', size = 12, family = 'Arial')
         plt.xlabel('Muestras por segundo "Muestras/s"')
         plt.ylabel('Voltaje "V"')
         ax.tick_params(direction='out', length=5, width = 2, colors='#000000', grid_color='r', grid_alpha=0.5)
-        self.line, = ax.plot([],[],color='m', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
+
+        self.line, = ax.plot([],[],color='g', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
+        self.line2, = ax.plot([],[],color='y', marker='o', linewidth=2, markersize=0, markeredgecolor='g')
         
         plt.xlim([0, self.muestra])
-        plt.ylim([5,15])
+        plt.ylim([8.5,13])
         
         ax.set_facecolor('#ffffff')
         ax.spines['bottom'].set_color('blue')
@@ -509,7 +561,11 @@ class MenuBar(Menu):
         ax.spines['top'].set_color('blue')
         ax.spines['right'].set_color('blue')
 
-        self.datos_señal_uno = deque([0]*self.muestra, maxlen = self.muestra)
+        self.datos_señal_uno = deque([9.5]*self.muestra, maxlen = self.muestra)
+        self.datos_rolling_mean = deque([11.2]*self.muestra, maxlen = self.muestra)
+        
+        self.line.set_data(range(self.muestra), self.datos_señal_uno)
+        self.line2.set_data(range(self.muestra), self.datos_rolling_mean)
 
         self.frame_principal.columnconfigure(0, weight=1)
         self.frame_principal.columnconfigure(0, weight=1)
@@ -533,7 +589,7 @@ class MenuBar(Menu):
         self.bt_reanudar = Button(frame_izquierda, state = 'disabled', text = 'Reanudar', font =('Arial',12, 'bold'), bg = '#29b9bb', fg='#000000', command= self.reanudar, bd=1)
         self.bt_reanudar.pack(fill='both', expand=5)
         
-        Label(frame_sliders, text = 'Offset', font =('Arial', 15), bg = self.bg_color, fg = '#000000').pack(expand=1)
+        Label(frame_sliders, text = 'Offset', font =('Arial', 25), bg = self.bg_color, fg = '#000000').pack(expand=1)
         style = Style()
         style.configure("Horizontal.TScale", background =self.bg_color)
         self.slider_uno = Scale(frame_sliders, command=self.dato_slider_uno, to=4, from_=-4, orient='horizontal', length=280, style='TScale', value=0)
@@ -541,7 +597,7 @@ class MenuBar(Menu):
 
         self.offset_number = StringVar()
         self.offset_number.set('0.000 v')
-        self.label_offset = Label(frame_sliders, textvariable=self.offset_number, font=('Arial', 43, 'bold'), bg=self.bg_color, fg='#000000')
+        self.label_offset = Label(frame_sliders, textvariable=self.offset_number, font=('Arial', 25), bg=self.bg_color, fg='#000000')
         self.label_offset.pack(fill='both')
     
     def getData(self):
@@ -566,12 +622,25 @@ class MenuBar(Menu):
             self.pausar()
 
     def animate(self,i):
+        bpm = 0
         self.datos = self.getData()
         if self.offset.get() == "":
             self.datos_señal_uno.append(self.datos)
         else:
             self.datos_señal_uno.append(self.datos + float(self.offset.get()))
+
+        self.temporizador += 0.018
+        if self.temporizador < 1.01 and self.temporizador > 0.9 :
+            self.tiempo += 1
+            self.temporizador = 0
+            
+        if self.tiempo > 10:
+            bpm, rolling_mean = getbpm(list(self.datos_señal_uno))
+            self.bpm.set(f'BPM: {bpm}')
+            self.datos_rolling_mean.extend(rolling_mean)
+
         self.line.set_data(range(self.muestra), self.datos_señal_uno)
+        self.line2.set_data(range(self.muestra), self.datos_rolling_mean)
 
     def iniciar(self,): 
         self.ani = animation.FuncAnimation(self.fig, self.animate,
@@ -597,7 +666,7 @@ class MenuBar(Menu):
 
     def conectar_serial(self): 
         line = str()
-        with open('data/conexiones.txt', 'r') as file:
+        with open('config/conexiones.txt', 'r') as file:
             for line in file.readlines():
                 if '192.168.0.25' in line:
                     hostip = line
@@ -609,7 +678,7 @@ class MenuBar(Menu):
         else:
             try:
                 self.client = socket(AF_INET, SOCK_STREAM)
-                host = (hostip, 9999)
+                host = ('192.168.0.25', 9999)
                 self.client.connect(host)
                 
                 messagebox.showinfo('Conectado', 'Listo para gráficar el electrocardiograma.')
