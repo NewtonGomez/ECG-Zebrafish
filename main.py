@@ -16,10 +16,11 @@ from socket import gethostbyname, gethostname, socket, AF_INET, SOCK_STREAM, get
 import math
 import numpy as np
 import os
+from numpy import arange
 from scipy import signal
+from time import time
 
 class Toolbar(NavigationToolbar2Tk):
-
     def set_message(self, s):
         pass
 
@@ -39,7 +40,7 @@ def butterBandStopFilter(lowcut, highcut, samplerate, order):
     return b,a
 
 def ecg_analyzer(dataset) -> dict:
-    sampleRate = 1000
+    sampleRate = 2000
     hrw = 0.25 #One-sided window size, as proportion of the sampling frequency
     fs = sampleRate #The example dataset was recorded at 100Hz
 
@@ -80,13 +81,13 @@ def ecg_analyzer(dataset) -> dict:
         RR_list.append(ms_dist) #Append to list
         cnt += 1
 
-    bpm = round(60000 / np.mean(RR_list))
+    bpm = round(30000 / np.mean(RR_list))
     return {'x':peaklist, 'y':ybeat, 'bpm':bpm}
 
 def getbpm(dataset) -> list:
     dataset = pd.DataFrame([i for i in dataset if i != 9.5])
     dataset.columns = ['hart']
-    sampleRate = 1000
+    sampleRate = 1200
     hrw = 0.25 
     fs = sampleRate
 
@@ -123,7 +124,7 @@ def getbpm(dataset) -> list:
         RR_list.append(ms_dist)
         cnt += 1
     
-    bpm = round(30000 / np.mean(RR_list))
+    bpm = round(15000 / np.mean(RR_list))
     return int(bpm), list(dataset.hart_rollingmean)
 
 class FilterDesign(Menu):
@@ -460,7 +461,7 @@ class MenuBar(Menu):
         self.tiempo = 0
         self.ws.protocol('WM_DELETE_WINDOW',self.AskQuit)
         Menu.__init__(self, ws)
-        self.muestra = 1000
+        self.muestra = 1250
         self.offset = StringVar()
         self.bg_color = '#D3D3D3'
         self.conectado = False
@@ -545,7 +546,7 @@ class MenuBar(Menu):
 
         self.fig, ax = plt.subplots(facecolor=self.bg_color, dpi = 100, figsize =(4,5))
         plt.title('ELECTROCARDIOGRAMA', color = '#000000', size = 12, family = 'Arial')
-        plt.xlabel('Muestras por segundo "Muestras/s"')
+        plt.xlabel('Muestras por minuto"Muestras/m"')
         plt.ylabel('Voltaje "V"')
         ax.tick_params(direction='out', length=5, width = 2, colors='#000000', grid_color='r', grid_alpha=0.5)
 
@@ -563,6 +564,7 @@ class MenuBar(Menu):
 
         self.datos_señal_uno = deque([9.5]*self.muestra, maxlen = self.muestra)
         self.datos_rolling_mean = deque([11.2]*self.muestra, maxlen = self.muestra)
+        self.marca_de_tiempo = deque([0]*self.muestra, maxlen = self.muestra)
         
         self.line.set_data(range(self.muestra), self.datos_señal_uno)
         self.line2.set_data(range(self.muestra), self.datos_rolling_mean)
@@ -624,6 +626,7 @@ class MenuBar(Menu):
     def animate(self,i):
         bpm = 0
         self.datos = self.getData()
+        self.marca_de_tiempo.append(time())
         if self.offset.get() == "":
             self.datos_señal_uno.append(self.datos)
         else:
@@ -645,13 +648,25 @@ class MenuBar(Menu):
     def iniciar(self,): 
         self.ani = animation.FuncAnimation(self.fig, self.animate,
             interval = 0, blit = False)
+        self.marcatiempo_incio = time()
         self.bt_graficar.config(state='disabled')
         self.bt_pausar.config(state='normal')   
         self.canvas.draw()
 
     def pausar(self): 
+        self.marcatiempo_final = time()
         self.ani.event_source.stop()
         self.bt_reanudar.config(state='normal')
+
+        print(self.marca_de_tiempo[0], self.marca_de_tiempo[-1])
+        print(self.marca_de_tiempo[-1] - self.marca_de_tiempo[0])
+        timing = list()
+        maxim = self.marca_de_tiempo[-1] - self.marca_de_tiempo[0]
+        steps = 26/self.muestra
+        print(maxim, steps)
+        for x in arange(0, maxim, steps):
+            timing.append(x)
+        print(len(timing))
         self.bt_graficar.config(state='disabled')
         self.bt_pausar.config(state='disabled')
 
@@ -660,6 +675,7 @@ class MenuBar(Menu):
         self.bt_reanudar.config(state='disabled')
         self.bt_graficar.config(state='disabled')
         self.bt_pausar.config(state='normal')
+        self.marcatiempo_incio = time()
 
     def sendinfo(self):
         self.client.sendall(pack('s', 'hola mundo'))
@@ -668,7 +684,7 @@ class MenuBar(Menu):
         line = str()
         with open('config/conexiones.txt', 'r') as file:
             for line in file.readlines():
-                if '192.168.0.25' in line:
+                if '192.168.0.17' in line:
                     hostip = line
                     break
             file.close()
@@ -678,7 +694,7 @@ class MenuBar(Menu):
         else:
             try:
                 self.client = socket(AF_INET, SOCK_STREAM)
-                host = ('192.168.0.25', 9999)
+                host = ('192.168.100.40', 9999)
                 self.client.connect(host)
                 
                 messagebox.showinfo('Conectado', 'Listo para gráficar el electrocardiograma.')
@@ -708,18 +724,17 @@ class MenuBar(Menu):
 
     def guardar(self):
         filepath = asksaveasfile(
-            filetypes=(
+            filetypes=([
                 ('CSV (Delimitado por comas)', '*.csv')
-            ),
+            ]),
             defaultextension='.txt',
         )
-        
-        periodo = 60/2000
-        tiempo = 0
+
+        tiempo = [x/self.muestra for x in range(self.marcatiempo_final - self.marcatiempo_incio)]
         with open(filepath.name, 'a') as file:
-            for data in self.datos_señal_uno:
-                file.write(f'{round(tiempo, 3)},{data}\n')
-                tiempo  += periodo
+            file.write('t,hart\n')
+            for i in len(0, self.muestra):
+                file.write(f'{self.marca_de_tiempo[i]},{self.datos_señal_uno}\n')
             file.close()
         messagebox.showinfo("Listo", f"El registro se ha guardado con éxito\nGuardado en {filepath.name}")
     
@@ -817,8 +832,8 @@ class MenuBar(Menu):
 
         with open('data/conexiones.txt', 'a') as file:
             for host in host_list:
-                if 'micro' == host: #! CAMBIAR STR DE BUSQUEDA AL NOMBRE DEL MICRO
-                    file.write(str(host)+'\n')
+                if 'micro' == socket.getfqdn(host): #! CAMBIAR STR DE BUSQUEDA AL NOMBRE DEL MICRO
+                    file.write('micro '+str(host)+'\n')
                     break
             file.close()
 

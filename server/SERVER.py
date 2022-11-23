@@ -35,42 +35,41 @@ if exist:
   
   station = network.WLAN(network.STA_IF)
 
-  if station.isconnected() == False:
-    station.active(True)
-    station.connect(ssid, pswd)
+  station.active(True)
+  station.connect(ssid, pswd)
 
-    while station.isconnected() == False:
-      pass
+  while station.isconnected() == False:
+    pass
 
-    print("Conexion establecida")
-    ip = station.ifconfig()[0]
-    print(ip)
+  print("Conexion establecida")
+  ip = station.ifconfig()[0]
+  print(ip)
 
-    server = socket(AF_INET, SOCK_STREAM)
-    server.bind((ip, 9999))
-    server.listen(5)
+  server = socket(AF_INET, SOCK_STREAM)
+  server.bind((ip, 9999))
+  server.listen(5)
 
-    i = 0
-    while True:
-        client, addr = server.accept() # si un cliente se conecta
-        print(f'conexion con: {addr}') # mostramos la direccion de la conexion
-        
-        sleep(5)
-        print('listo')
-        sleep(0.5)
-        while True:
-            # leemos la informacion
-            read = float(ADC(Pin(26)))
-            
-            # para enviar la informacion hay que convertirla a un conjunto de bytes
-            # por lo que la se甯絘l filtrada, es empaquetada con el metodo pack
-            packedinfo = pack('f', read)
+  i = 0
+  while True:
+      client, addr = server.accept() # si un cliente se conecta
+      print(f'conexion con: {addr}') # mostramos la direccion de la conexion
+      
+      sleep(5)
+      print('listo')
+      sleep(0.5)
+      while True:
+          # leemos la informacion
+          readit = float(ADC(Pin(26)))
+          
+          # para enviar la informacion hay que convertirla a un conjunto de bytes
+          # por lo que la se甯絘l filtrada, es empaquetada con el metodo pack
+          packedinfo = pack('f', readit)
 
-            # enviamos la informacion al cliente
-            try:
-                client.sendall(packedinfo)
-            except:
-                break
+          # enviamos la informacion al cliente
+          try:
+              client.sendall(packedinfo)
+          except:
+              continue
 
 else:
   ap = network.WLAN(network.AP_IF)
