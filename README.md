@@ -1,13 +1,4 @@
 ﻿# ECG TRANSMITIDO VIA WI-FI
-
-1. [Introducción](#introduccion)
-2. [Graficación y animación](#animacion)
-    * [Creación del canvas](#canvas) 
-    * [Animación](#animaciones) 
-3. [Prótocolo de recepción WIFI](#protocolo)
-4. [Acondicionamiento de la señal](#acondicionamiento')
-5. [Análisis de la señal ECG](#analisis)
-
 <h2 id='introduccion'>Introducción</h2>
 El uso de animales como modelos biológicos en el campo de la medicina en el campo de la 
 toxicidad de los medicamentos a través del sistema cardiovascular, es indispensable, ya que así 
@@ -18,6 +9,15 @@ ser reproducido y almacenado en espacios reducidos y con bajos insumos vitales p
 supervivencia. 
 Se diseño este programa para poder enviar esa señal digitalizada desde un sistema embedido basado en arduino, y recogida
 en el programa de computadora para su posterior analisis y modificacion.
+
+2. [Graficación y animación](#animacion)
+    * [Creación del canvas](#canvas) 
+    * [Animación](#animaciones) 
+3. [Prótocolo de recepción WIFI](#protocolo)
+4. [Acondicionamiento de la señal](#acondicionamiento)
+5. [Análisis de la señal ECG](#analisis)
+
+
 <br>
 
 <h2 id='animacion'>Animación</h2>
